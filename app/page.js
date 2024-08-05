@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Box, Stack, Typography, Button, Modal, TextField } from '@mui/material';
-import { firestore } from '../firebase'; // Adjusted import path
+import { firestore, storage } from '../firebase'; // Adjusted import path
 import {
   collection,
   doc,
@@ -12,6 +12,7 @@ import {
   deleteDoc,
   getDoc,
 } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'; // Import Firebase Storage functions
 
 const style = {
   position: 'absolute',
@@ -32,6 +33,7 @@ export default function Home() {
   const [inventory, setInventory] = useState([]);
   const [open, setOpen] = useState(false);
   const [itemName, setItemName] = useState('');
+  const [file, setFile] = useState(null); // New state for file input
   const [searchTerm, setSearchTerm] = useState(''); // New state for search term
 
   const updateInventory = async () => {
@@ -50,15 +52,30 @@ export default function Home() {
     updateInventory();
   }, []);
 
-  const addItem = async (item) => {
+  const uploadImage = async (file) => {
+    const storageRef = ref(storage, `images/${file.name}`);
+    await uploadBytes(storageRef, file);
+    return getDownloadURL(storageRef);
+  };
+
+  const addItem = async (item, file) => {
+    if (!item) {
+      console.error('Item name is required.');
+      return;
+    }
+
+    let imageUrl = '';
+    if (file) {
+      imageUrl = await uploadImage(file);
+    }
     console.log(`Adding item: ${item}`);
     const docRef = doc(collection(firestore, 'inventory'), item);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
       const { quantity } = docSnap.data();
-      await setDoc(docRef, { quantity: quantity + 1 });
+      await setDoc(docRef, { quantity: quantity + 1, imageUrl }, { merge: true });
     } else {
-      await setDoc(docRef, { quantity: 1 });
+      await setDoc(docRef, { quantity: 1, imageUrl });
     }
     await updateInventory();
   };
@@ -127,11 +144,16 @@ export default function Home() {
               value={itemName}
               onChange={(e) => setItemName(e.target.value)}
             />
+            <input
+              type="file"
+              onChange={(e) => setFile(e.target.files[0])} // Handle file input
+            />
             <Button
               variant="outlined"
-              onClick={() => {
-                addItem(itemName);
+              onClick={async () => {
+                await addItem(itemName, file);
                 setItemName('');
+                setFile(null); // Reset file input
                 handleClose();
               }}
             >
@@ -157,7 +179,7 @@ export default function Home() {
           </Typography>
         </Box>
         <Stack width="800px" height="300px" spacing={2} overflow={'auto'}>
-          {filteredInventory.map(({ name, quantity }) => (
+          {filteredInventory.map(({ name, quantity, imageUrl }) => (
             <Box
               key={name}
               width="100%"
@@ -171,6 +193,9 @@ export default function Home() {
               <Typography variant={'h3'} color={'#333'} textAlign={'center'}>
                 {name.charAt(0).toUpperCase() + name.slice(1)}
               </Typography>
+              {imageUrl && (
+                <img src={imageUrl} alt={name} style={{ width: '100px', height: '100px' }} />
+              )}
               <Typography variant={'h3'} color={'#333'} textAlign={'center'}>
                 Quantity: {quantity}
               </Typography>
